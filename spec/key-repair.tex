@@ -1,0 +1,224 @@
+\documentclass[11pt]{article}
+\usepackage[noend]{algpseudocode}
+\usepackage{fullpage}
+\usepackage{amsmath,amsfonts,amssymb}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{graphicx,etoolbox}
+\usepackage{hyperref,url}
+\usepackage{enumitem}
+
+\newtoggle{darkMode}
+\togglefalse{darkMode}
+
+\definecolor{DfnsPurple}{RGB}{19,7,34}
+\definecolor{DfnsWhite}{RGB}{254,249,239}
+
+\iftoggle{darkMode}{
+    \pagecolor{DfnsPurple}
+    \color{DfnsWhite}
+}{
+    \pagecolor{DfnsWhite}
+    \color{DfnsPurple}
+}
+
+\newcommand{\ignore}[1]{}
+\newcommand{\var}[1]{\ensuremath{\mathtt{#1}}}
+\newcommand{\sid}{\ensuremath{\mathtt{sid}}}
+\newcommand{\Encode}[1][]{\ensuremath{\mathtt{Encode}_{\mathtt{#1}}}}
+\newcommand{\?}[1]{\stackrel{?}{#1}}
+\newcommand{\Bit}{\ensuremath{\{0{,}1\}}}
+\newcommand{\Byte}{\ensuremath{\mathbb{B}}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Hs}{\mathcal{H}}
+
+\renewcommand{\labelitemi}{--}
+\renewcommand{\labelitemiii}{--}
+
+\title{{\bf Key Repair}}
+\author{\includegraphics[width=50pt]{images/DFNS-Logo.png}}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+\label{sec:intro}
+
+This document specifies threshold key repair: restoration of one lost Shamir share of an existing $t$-out-of-$n$ key.
+
+Repair returns one existing share $x_r = f(I(r))$ to the party who lost it.
+Every other secret share, the public shares, the evaluation points, the threshold, and the joint public key stay as they were.
+A party who no longer holds $x_r$ cannot run refresh, because refresh adds a zero-sharing onto the old share.
+If the share may have been copied, repair is run first and threshold key refresh is run afterwards, once all $n$ parties again hold a share.
+
+
+\section{Notation}
+\label{sec:notation}
+
+$\E$ denotes an elliptic-curve group of prime order $q$ with generator $G$.
+$H$ denotes a hash function and $\Encode[\cdot]$ an unambiguous, domain-separated encoding, as in the main specification.
+$[n] = \{0, \ldots, n-1\}$ is the set of key-share indexes.
+Party $P_k$ is the party whose key share stores index $k$.
+$I : [n] \to \Z_q \setminus \{0\}$ is injective; $I(k)$ is the Shamir evaluation point of party $k$, not the integer $k$.
+The shared secret is $f(0)$ for a polynomial $f$ over $\Z_q$ of degree at most $t-1$.
+Party $P_k$ holds the share $x_k = f(I(k))$, and the public share is $X_k = x_k \cdot G$.
+The joint public key is $Y = f(0) \cdot G$.
+
+Signing reconstructs $f(0)$.
+Repair reconstructs $f(I(r))$.
+The Lagrange coefficients below are evaluated at $I(r)$.
+
+\section{Threshold key repair}
+\label{sec:key-repair}
+
+The protocol is the triangular pad scheme of~\cite[$\S$4.1.3]{laing-stinson}, with an agreement check added before any value that depends on a secret share is sent.
+Any $t$ holders can be the helpers.
+Helpers are ordered by increasing key-share index for this run.
+That order is not written into $I$ and does not change any party's index.
+
+Every message is sent point-to-point on authenticated, encrypted channels, as the library already requires of its transport: the recipient knows the sender, and no one else reads the message.
+The authenticated identity that holds index $r$ receives the restored share.
+Binding index $r$ to a replacement device is outside this protocol.
+Parties outside $\Hs \cup \{r\}$ stay idle.
+The scheme requires $n \ge t+1$.
+When $n = t$, a lost share leaves $t-1$ holders, and those holders do not determine $x_r$.
+
+\begin{description}
+    \item[\bf Participants.] \
+    \begin{itemize}[noitemsep,topsep=0pt]
+    \item repairing party $P_r$, key-share index $r$,
+    \item a helper set $\Hs \subseteq [n] \setminus \{r\}$ with $|\Hs| = t$.
+          Write $\Hs = \{h_0, \ldots, h_{t-1}\}$ in increasing index order.
+    \end{itemize}
+
+    \item[\bf Input.] \
+    \begin{itemize}[noitemsep,topsep=0pt]
+    \item context separation string $\sid \in \Byte^*$, identifying the key and this repair,
+    \item curve $\E$ with generator $G$ of prime order $q$,
+    \item repairing index $r$, $0 \le r < n$,
+    \item helper set $\Hs$ as above,
+    \end{itemize}
+    \textbf{From the key share.}
+    \begin{itemize}[noitemsep,topsep=0pt]
+    \item each helper $P_h$ holds its Shamir share $x_h \in \Z_q$,
+    \item list of public key shares $\vec X = (X_k)_{k \in [n]} \in \E^n$,
+    \item number of signers $n \ge t+1$,
+    \item threshold parameter $t$, $2 \le t \le n-1$,
+    \item joint public key $Y \in \E$,
+    \item injective map $I : [n] \to \Z_q \setminus \{0\}$,
+    \item if HD wallets are enabled, chain code $c \in \Byte^{32}$.
+    \end{itemize}
+    Every participant, $P_r$ included, holds the public data $(Y, \vec X, I, t, n)$ and, if enabled, $c$.
+    $P_r$ does not input $x_r$.
+
+    \item[\bf Outputs.] \
+    \begin{itemize}[noitemsep,topsep=0pt]
+    \item $P_r$ obtains the restored Shamir share $x_r \in \Z_q$,
+    \end{itemize}
+    $\vec X$, $Y$, $I$, $t$, $n$, the chain code $c$ (if enabled), and every helper's secret share remain unchanged.
+    $P_r$ accepts $x_r$ only when $x_r \cdot G = X_r$, which is the same relation a validated share satisfies.
+    Repair does not restore auxiliary data.
+    If $P_r$ lost its Paillier secret key together with $x_r$, auxiliary data generation has to be run again by all $n$ parties before $P_r$ can presign.
+
+    \item[\textbf{Round 1.}] \quad Every participant $P_k$, $k \in \Hs \cup \{r\}$.
+    \begin{algorithmic}[1]
+        \State Assert $r \notin \Hs$, $|\Hs| = t$, and $\Hs \subseteq [n]$
+        \State Compute $v_k = H\bigl(\Encode[repair\_agree](\sid, r, \Hs, Y, \vec X, I, t)\bigr)$
+              \Comment{\parbox[t]{.28\linewidth}{include $c$ if HD wallets are enabled}}
+        \State Send $v_k$ to every $P_j$ with $j \in (\Hs \cup \{r\}) \setminus \{k\}$
+    \end{algorithmic}
+    In addition, each helper $P_{h_a}$:
+    \begin{algorithmic}[1]
+        \For{$h \in \Hs$}
+            \State Compute $\zeta_h = \displaystyle\prod_{k \in \Hs \setminus \{h\}} \bigl(I(r) - I(k)\bigr) \cdot \bigl(I(h) - I(k)\bigr)^{-1} \in \Z_q$
+        \EndFor
+        \State Compute $\lambda_{h_a} = \zeta_{h_a} \cdot x_{h_a} \bmod q$
+        \For{$b \in \{a+1, \ldots, t-1\}$}
+            \State Sample $\delta_{h_b, h_a} \gets \Z_q$
+            \State Send $\delta_{h_b, h_a} \in \Z_q$ to $P_{h_b}$
+        \EndFor
+        \State Set $\delta_{h_a, h_a} = \lambda_{h_a} - \displaystyle\sum_{b=a+1}^{t-1} \delta_{h_b, h_a} \bmod q$
+              \Comment{\parbox[t]{.32\linewidth}{empty sum when $a = t-1$; that helper sends no pad}}
+    \end{algorithmic}
+    The diagonal pad $\delta_{h_a, h_a}$ is kept locally and is not sent.
+    The pads that are sent are sampled independently of $x_{h_a}$.
+
+    \item[\textbf{Round 2.}] \quad Each helper $P_{h_a}$.
+    \begin{algorithmic}[1]
+        \State Receive $v_j$ from every $P_j$ with $j \in (\Hs \cup \{r\}) \setminus \{h_a\}$
+        \State Assert $v_j \? = v_{h_a}$ for every such $j$
+              \Comment{\parbox[t]{.34\linewidth}{all participants hold the same $r$, $\Hs$, and public data}}
+        \State Receive $\delta_{h_a, h_b} \in \Z_q$ from each $P_{h_b}$ with $b < a$
+        \State Compute $\sigma_{h_a} = \delta_{h_a, h_a} + \displaystyle\sum_{b=0}^{a-1} \delta_{h_a, h_b} \bmod q$
+              \Comment{empty sum when $a = 0$}
+        \State Send $\sigma_{h_a} \in \Z_q$ to $P_r$
+    \end{algorithmic}
+
+    \item[\textbf{Output.}] \quad Repairing party $P_r$.
+    \begin{algorithmic}[1]
+        \State Receive $v_h$ from every $P_h$ with $h \in \Hs$
+        \State Assert $v_h \? = v_r$ for every $h \in \Hs$
+        \State Receive $\sigma_h \in \Z_q$ from each $P_h$ with $h \in \Hs$
+        \State Compute $x_r = \displaystyle\sum_{h \in \Hs} \sigma_h \bmod q$
+        \State Assert $x_r \cdot G \? = X_r$
+        \State \Return $x_r$
+    \end{algorithmic}
+    $P_r$ writes $x_r$ into the existing share record at index $r$.
+
+\end{description}
+
+\paragraph{Correctness.}
+Helper $h_a$ chooses pads whose sum is its weighted share, $\sum_{b \ge a} \delta_{h_b, h_a} = \lambda_{h_a}$.
+The value sent to $P_r$ sums the pads addressed to that helper, $\sigma_{h_a} = \sum_{b \le a} \delta_{h_a, h_b}$.
+Every pad is counted once:
+\[
+\sum_{a=0}^{t-1} \sigma_{h_a}
+  = \sum_{a=0}^{t-1} \sum_{b=0}^{a} \delta_{h_a, h_b}
+  = \sum_{b=0}^{t-1} \sum_{a=b}^{t-1} \delta_{h_a, h_b}
+  = \sum_{b=0}^{t-1} \lambda_{h_b}
+  = \sum_{h \in \Hs} \zeta_h \, x_h.
+\]
+The coefficients $\zeta_h$ are the Lagrange basis for the nodes $\{I(h) : h \in \Hs\}$, evaluated at $I(r)$.
+For a polynomial of degree at most $t-1$, that basis reconstructs the missing evaluation, so the sum equals $f(I(r)) = x_r$.
+The same identity holds in the exponent, $\sum_{h \in \Hs} \zeta_h \cdot X_h = X_r$, for any public data that passes key-share validation, because validation checks that all public shares lie on one polynomial of degree $t-1$.
+It is therefore not a separate check; disagreement about the public data is caught by the agreement hash.
+
+\paragraph{Communication.}
+Helper $h_a$ sends $t-1-a$ pads, and each of the $t$ helpers sends one field element to $P_r$.
+That is $t(t+1)/2$ elements of $\Z_q$, as in~\cite{laing-stinson}.
+The agreement check adds $t(t+1)$ hashes, one from each of the $t+1$ participants to each of the others.
+
+\paragraph{Security.}
+Under Theorem~4.1 of~\cite{laing-stinson}, the triangle is information-theoretically private against any coalition of at most $t-1$ parties, provided every participant follows the protocol and the channels hide each pad and each $\sigma_h$ from everyone except its recipient.
+A coalition of that size learns nothing about $f(0)$, and nothing about a share outside the coalition other than $x_r$ when $P_r$ is in it.
+
+The theorem assumes that all participants hold the same $r$ and $\Hs$.
+Without the agreement check, a coalition of $t-1$ parties can break the threshold when $t \ge 3$.
+Two colluders $P_r$ and $P_{r'}$ tell honest helper $P_a$ to repair $r$ with $\Hs_a \ni r'$, and honest helper $P_b$ to repair $r'$ with $\Hs_b \ni r$.
+The pad between $P_a$ and $P_b$ cancels in $\sigma_a + \sigma_b$, and the coalition learns $\zeta^{(a)}_a x_a + \zeta^{(b)}_b x_b$ with coefficients from two different Lagrange systems.
+Together with its own $t-1$ shares, that determines $f$.
+With the agreement assert in Round~2, a helper sends $\sigma_{h_a}$, the only message that depends on its share, only after every other participant has confirmed the same $r$, $\Hs$, and public data.
+Pads sent in Round~1 are independent of the shares, so sending them before the check reveals nothing.
+
+This specification does not claim correctness against a participant who sends a malformed pad or $\sigma_h$.
+The output assert tells $P_r$ that the sum is not $x_r$, so a wrong share is never accepted; it does not name which helper to abort.
+
+\paragraph{Paper.}
+Section~4.1.3 of~\cite{laing-stinson} states the send rule in two opposite orientations.
+The prose before the steps, step~3, matrix~(18), and the proof of Theorem~4.1 have $P_i$ send pads only to lower-indexed helpers: $\delta_{j,i} = 0$ for $j > i$, and $\sigma_j = \sum_{i=j}^{t} \delta_{j,i}$.
+Steps~1 and~2 have $P_i$ create and send pads for $j > i$.
+Read together, steps~1 to~3 give $\sigma_j = \delta_{j,j}$ and drop every pad that was sent.
+This specification uses the orientation of steps~1 and~2 with the matching sum $\sigma_{h_a} = \sum_{b \le a} \delta_{h_a, h_b}$.
+Reversing the helper order maps it onto the orientation of the proof, so Theorem~4.1 applies unchanged.
+
+\begin{thebibliography}{1}
+\bibitem{laing-stinson}
+Tamara~M. Laing and Douglas~R. Stinson.
+\newblock A Survey and Refinement of Repairable Threshold Schemes.
+\newblock Cryptology ePrint Archive, Paper 2017/1155, 2017.
+\newblock \url{https://eprint.iacr.org/2017/1155}.
+\end{thebibliography}
+
+\end{document}
