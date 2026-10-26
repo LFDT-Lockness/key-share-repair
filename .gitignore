@@ -1,0 +1,7 @@
+/target
+
+spec/*.aux
+spec/*.log
+spec/*.out
+spec/*.toc
+spec/*.pdf
