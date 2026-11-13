@@ -24,7 +24,6 @@
 \newcommand{\ignore}[1]{}
 \newcommand{\var}[1]{\ensuremath{\mathtt{#1}}}
 \newcommand{\sid}{\ensuremath{\mathtt{sid}}}
-\newcommand{\Encode}[1][]{\ensuremath{\mathtt{Encode}_{\mathtt{#1}}}}
 \newcommand{\?}[1]{\stackrel{?}{#1}}
 \newcommand{\Bit}{\ensuremath{\{0{,}1\}}}
 \newcommand{\Byte}{\ensuremath{\mathbb{B}}}
@@ -56,7 +55,6 @@ Every other secret share, the public shares, the evaluation points, the threshol
 \label{sec:notation}
 
 $\E$ denotes an elliptic-curve group of prime order $q$ with generator $G$.
-$H$ denotes a hash function and $\Encode$ an unambiguous, domain-separated encoding.
 $[n] = \{0, \ldots, n-1\}$.
 Party $P_k$ is the party whose key share stores index $k \in [n]$.
 $I : [n] \to \Z_q \setminus \{0\}$ is injective; $I(k)$ is the Shamir evaluation point of party $k$.
@@ -76,15 +74,16 @@ This is the coefficient computed by $\mathtt{lagrange\_coefficient}$ in the gene
 \section{Threshold key repair}
 \label{sec:key-repair}
 
-The protocol is the triangular pad scheme of~\cite[$\S$4.1.3]{laing-stinson}, with an agreement check added before any value that depends on a secret share is sent.
+The protocol is the triangular pad scheme of~\cite[$\S$4.1.3]{laing-stinson}.
+Each helper sends the public description of the repair with its $\sigma$, and $P_r$ accepts the restored share only when every helper sent the same description.
 Any $t$ holders can be the helpers.
 Helpers are ordered by increasing key-share index for this run.
 That order is not written into $I$ and does not change any party's index.
 
-Every message is sent point-to-point on authenticated, encrypted channels. 
+Every message is sent point-to-point on authenticated, encrypted channels.
 The authenticated identity that holds index $r$ receives the restored share.
-The scheme requires $n \ge t+1$.
-When $n = t$, a lost share leaves $t-1$ holders, and those holders do not determine $x_r$.
+The repair is run by exactly $t+1$ parties: $P_r$ and the $t$ helpers.
+Any $t$ holders of a larger key can be those helpers.
 
 \begin{description}
     \item[\bf Participants.] \
@@ -113,7 +112,7 @@ When $n = t$, a lost share leaves $t-1$ holders, and those holders do not determ
     \end{itemize}
     $P_r$ does not hold $x_r$, and need not hold a key-share record at all.
     A coordinator (or any helper) supplies $P_r$ with the public data $(Y, \vec X, I, t, n)$ and, if enabled, $c$, as protocol input before Round~1.
-    The agreement hash binds that copy to the helpers' key-share data, a mismatch aborts.
+    Round~3 checks that copy against the metadata each helper sends. A mismatch aborts.
 
     \item[\bf Outputs.] \
     \begin{itemize}[noitemsep,topsep=0pt]
@@ -126,9 +125,6 @@ When $n = t$, a lost share leaves $t-1$ holders, and those holders do not determ
     \item[\textbf{Round 1.}] \quad Every participant $P_k$, $k \in \Hs \cup \{r\}$.
     \begin{algorithmic}[1]
         \State Assert $r \notin \Hs$, $|\Hs| = t$, and $\Hs \subseteq [n]$
-        \State Compute $v_k = H\bigl(\Encode[repair\_agree](\sid, r, \Hs, Y, \vec X, I, t)\bigr)$
-              \Comment{\parbox[t]{.28\linewidth}{include $c$ if HD wallets are enabled}}
-        \State Send $v_k$ to every $P_j$ with $j \in (\Hs \cup \{r\}) \setminus \{k\}$
     \end{algorithmic}
     In addition, each helper $P_{h_a}$:
     \begin{algorithmic}[1]
@@ -148,20 +144,18 @@ When $n = t$, a lost share leaves $t-1$ holders, and those holders do not determ
 
     \item[\textbf{Round 2.}] \quad Each helper $P_{h_a}$.
     \begin{algorithmic}[1]
-        \State Receive $v_j$ from every $P_j$ with $j \in (\Hs \cup \{r\}) \setminus \{h_a\}$
-        \State Assert $v_j \? = v_{h_a}$ for every such $j$
-              \Comment{\parbox[t]{.34\linewidth}{all participants hold the same $r$, $\Hs$, and public data}}
         \State Receive $\delta_{h_a, h_b} \in \Z_q$ from each $P_{h_b}$ with $b < a$
         \State Compute $\sigma_{h_a} = \delta_{h_a, h_a} + \displaystyle\sum_{b=0}^{a-1} \delta_{h_a, h_b} \bmod q$
               \Comment{empty sum when $a = 0$}
-        \State Send $\sigma_{h_a} \in \Z_q$ to $P_r$
+        \State Send $\sigma_{h_a}$ and the share metadata $(\sid, r, \Hs, Y, \vec X, I, t)$ to $P_r$
+              \Comment{\parbox[t]{.32\linewidth}{include $c$ if HD wallets are enabled}}
     \end{algorithmic}
 
-    \item[\textbf{Output.}] \quad Repairing party $P_r$.
+    \item[\textbf{Round 3.}] \quad Repairing party $P_r$.
     \begin{algorithmic}[1]
-        \State Receive $v_h$ from every $P_h$ with $h \in \Hs$
-        \State Assert $v_h \? = v_r$ for every $h \in \Hs$
-        \State Receive $\sigma_h \in \Z_q$ from each $P_h$ with $h \in \Hs$
+        \State Receive $(\sigma_h, \mathrm{meta}_h)$ from every $P_h$ with $h \in \Hs$
+        \State Assert $\mathrm{meta}_h \? = (\sid, r, \Hs, Y, \vec X, I, t)$ for every $h \in \Hs$
+              \Comment{\parbox[t]{.32\linewidth}{include $c$ on both sides if HD wallets are enabled}}
         \State Compute $x_r = \displaystyle\sum_{h \in \Hs} \sigma_h \bmod q$
         \State Assert $x_r \cdot G \? = X_r$
         \State \Return $x_r$

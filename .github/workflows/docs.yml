@@ -13,7 +13,7 @@ jobs:
   build_pdf:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
     steps:
     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 #v7.0.0
@@ -25,14 +25,27 @@ jobs:
     - name: Rename PDF
       run: mv spec/key-repair.pdf spec/key-repair-spec.pdf
     - name: Upload artifacts
-      id: upload-pdf
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
       with:
         name: spec-pdf
         path: spec/key-repair-spec.pdf
+    - name: Publish the PDF
+      if: github.event_name == 'pull_request'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        tag="spec-pdf-${{ github.event.pull_request.number }}"
+        gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag || true
+        gh release create "$tag" spec/key-repair-spec.pdf \
+          --repo "${{ github.repository }}" \
+          --target "${{ github.event.pull_request.head.sha }}" \
+          --title "Key repair spec (PR ${{ github.event.pull_request.number }})" \
+          --prerelease \
+          --notes "Built from ${{ github.sha }}."
     - name: Leave PR comment
-      continue-on-error: true
+      if: github.event_name == 'pull_request'
       uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 #v2
       with:
+        number: ${{ github.event.pull_request.number }}
         header: spec_is_built
-        message: The spec was successfully compiled. PDF is available [here](${{ steps.upload-pdf.outputs.artifact-url }}).
+        message: The spec was successfully compiled. PDF is available [here](https://github.com/${{ github.repository }}/releases/download/spec-pdf-${{ github.event.pull_request.number }}/key-repair-spec.pdf).
