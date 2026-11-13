@@ -1,0 +1,175 @@
+\documentclass[11pt]{article}
+\usepackage[noend]{algpseudocode}
+\usepackage{fullpage}
+\usepackage{amsmath,amsfonts,amssymb}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{graphicx,etoolbox}
+\usepackage{hyperref,url}
+\usepackage{enumitem}
+
+\newtoggle{darkMode}
+\togglefalse{darkMode}
+
+\definecolor{DfnsPurple}{RGB}{19,7,34}
+\definecolor{DfnsWhite}{RGB}{254,249,239}
+
+\iftoggle{darkMode}{
+    \pagecolor{DfnsPurple}
+    \color{DfnsWhite}
+}{
+    \pagecolor{DfnsWhite}
+    \color{DfnsPurple}
+}
+
+\newcommand{\ignore}[1]{}
+\newcommand{\var}[1]{\ensuremath{\mathtt{#1}}}
+\newcommand{\sid}{\ensuremath{\mathtt{sid}}}
+\newcommand{\?}[1]{\stackrel{?}{#1}}
+\newcommand{\Bit}{\ensuremath{\{0{,}1\}}}
+\newcommand{\Byte}{\ensuremath{\mathbb{B}}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Hs}{\mathcal{H}}
+
+\renewcommand{\labelitemi}{--}
+\renewcommand{\labelitemiii}{--}
+
+\title{{\bf Key Repair}}
+\author{\includegraphics[width=50pt]{images/DFNS-Logo.png}}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+\label{sec:intro}
+
+This document specifies threshold key repair: restoration of one lost Shamir share of an existing $t$-out-of-$n$ key.
+
+Repair returns one existing share $x_r = f(I(r))$ to the party who lost it.
+Every other secret share, the public shares, the evaluation points, the threshold, and the joint public key stay as they were.
+
+
+\section{Notation}
+\label{sec:notation}
+
+$\E$ denotes an elliptic-curve group of prime order $q$ with generator $G$.
+$[n] = \{0, \ldots, n-1\}$.
+Party $P_k$ is the party whose key share stores index $k \in [n]$.
+$I : [n] \to \Z_q \setminus \{0\}$ is injective; $I(k)$ is the Shamir evaluation point of party $k$.
+The shared secret is $f(0)$ for a polynomial $f$ over $\Z_q$ of degree $t-1$.
+Party $P_k$ holds the share $x_k = f(I(k))$, and the public share is $X_k = x_k \cdot G$.
+The joint public key is $Y = f(0) \cdot G$.
+
+For $S \subseteq [n]$ with $|S| = t$ and $h \in S$, the Lagrange coefficient of $h$ for interpolation at a point $x \in \Z_q$ is
+\[
+\zeta_h(x, S)
+  = \prod_{k \in S \setminus \{h\}}
+    \bigl(x - I(k)\bigr) \cdot \bigl(I(h) - I(k)\bigr)^{-1}
+  \in \Z_q.
+\]
+This is the coefficient computed by $\mathtt{lagrange\_coefficient}$ in the generic-ec library.
+
+\section{Threshold key repair}
+\label{sec:key-repair}
+
+The protocol is the triangular pad scheme of~\cite[$\S$4.1.3]{laing-stinson}.
+Each helper sends the public description of the repair with its $\sigma$, and $P_r$ accepts the restored share only when every helper sent the same description.
+Any $t$ holders can be the helpers.
+Helpers are ordered by increasing key-share index for this run.
+That order is not written into $I$ and does not change any party's index.
+
+Every message is sent point-to-point on authenticated, encrypted channels.
+The authenticated identity that holds index $r$ receives the restored share.
+The repair is run by exactly $t+1$ parties: $P_r$ and the $t$ helpers.
+Any $t$ holders of a larger key can be those helpers.
+
+\begin{description}
+    \item[\bf Participants.] \
+    \begin{itemize}[noitemsep,topsep=0pt]
+    \item party to be repaired $P_r$, index $r \in [n]$,
+    \item a set of helpers $\Hs \subseteq [n] \setminus \{r\}$ with $|\Hs| = t$.
+          Write $\Hs = \{h_0, \ldots, h_{t-1}\}$ in increasing index order.
+    \end{itemize}
+
+    \item[\bf Input.] \
+    \begin{itemize}[noitemsep,topsep=0pt]
+    \item context separation string $\sid \in \Byte^*$, identifying the key and this repair,
+    \item curve $\E$ with generator $G$ of prime order $q$,
+    \item repairing index $r$, $0 \le r < n$,
+    \item helper set $\Hs$ as above,
+    \end{itemize}
+    \textbf{From each helper's key share.}
+    \begin{itemize}[noitemsep,topsep=0pt]
+    \item Shamir share $x_h \in \Z_q$,
+    \item list of public key shares $\vec X = (X_k)_{k \in [n]} \in \E^n$,
+    \item number of signers $n \ge t+1$,
+    \item threshold parameter $t$, $2 \le t \le n-1$,
+    \item joint public key $Y \in \E$,
+    \item injective map $I : [n] \to \Z_q \setminus \{0\}$,
+    \item if HD wallets are enabled, chain code $c \in \Byte^{32}$.
+    \end{itemize}
+    $P_r$ does not hold $x_r$, and need not hold a key-share record at all.
+    A coordinator (or any helper) supplies $P_r$ with the public data $(Y, \vec X, I, t, n)$ and, if enabled, $c$, as protocol input before Round~1.
+    Round~3 checks that copy against the metadata each helper sends. A mismatch aborts.
+
+    \item[\bf Outputs.] \
+    \begin{itemize}[noitemsep,topsep=0pt]
+    \item $P_r$ obtains the restored Shamir share $x_r \in \Z_q$,
+    \end{itemize}
+    $\vec X$, $Y$, $I$, $t$, $n$, the chain code $c$ (if enabled), and every helper's secret share remain unchanged.
+    $P_r$ accepts $x_r$ only when $x_r \cdot G = X_r$, which is the same relation a validated share satisfies.
+    
+
+    \item[\textbf{Round 1.}] \quad Every participant $P_k$, $k \in \Hs \cup \{r\}$.
+    \begin{algorithmic}[1]
+        \State Assert $r \notin \Hs$, $|\Hs| = t$, and $\Hs \subseteq [n]$
+    \end{algorithmic}
+    In addition, each helper $P_{h_a}$:
+    \begin{algorithmic}[1]
+        \For{$h \in \Hs$}
+            \State Set $\zeta_h = \zeta_h\bigl(I(r), \Hs\bigr)$
+        \EndFor
+        \State Compute $\lambda_{h_a} = \zeta_{h_a} \cdot x_{h_a} \bmod q$
+        \For{$b \in \{a+1, \ldots, t-1\}$}
+            \State Sample $\delta_{h_b, h_a} \gets \Z_q$
+            \State Send $\delta_{h_b, h_a} \in \Z_q$ to $P_{h_b}$
+        \EndFor
+        \State Set $\delta_{h_a, h_a} = \lambda_{h_a} - \displaystyle\sum_{b=a+1}^{t-1} \delta_{h_b, h_a} \bmod q$
+              \Comment{\parbox[t]{.32\linewidth}{empty sum when $a = t-1$; that helper sends no pad}}
+    \end{algorithmic}
+    The diagonal pad $\delta_{h_a, h_a}$ is kept locally and is not sent.
+    The pads that are sent are sampled independently of $x_{h_a}$.
+
+    \item[\textbf{Round 2.}] \quad Each helper $P_{h_a}$.
+    \begin{algorithmic}[1]
+        \State Receive $\delta_{h_a, h_b} \in \Z_q$ from each $P_{h_b}$ with $b < a$
+        \State Compute $\sigma_{h_a} = \delta_{h_a, h_a} + \displaystyle\sum_{b=0}^{a-1} \delta_{h_a, h_b} \bmod q$
+              \Comment{empty sum when $a = 0$}
+        \State Send $\sigma_{h_a}$ and the share metadata $(\sid, r, \Hs, Y, \vec X, I, t)$ to $P_r$
+              \Comment{\parbox[t]{.32\linewidth}{include $c$ if HD wallets are enabled}}
+    \end{algorithmic}
+
+    \item[\textbf{Round 3.}] \quad Repairing party $P_r$.
+    \begin{algorithmic}[1]
+        \State Receive $(\sigma_h, \mathrm{meta}_h)$ from every $P_h$ with $h \in \Hs$
+        \State Assert $\mathrm{meta}_h \? = (\sid, r, \Hs, Y, \vec X, I, t)$ for every $h \in \Hs$
+              \Comment{\parbox[t]{.32\linewidth}{include $c$ on both sides if HD wallets are enabled}}
+        \State Compute $x_r = \displaystyle\sum_{h \in \Hs} \sigma_h \bmod q$
+        \State Assert $x_r \cdot G \? = X_r$
+        \State \Return $x_r$
+    \end{algorithmic}
+    $P_r$ stores $x_r$ with the public data at index $r$.
+
+\end{description}
+
+\begin{thebibliography}{1}
+\bibitem{laing-stinson}
+Tamara~M. Laing and Douglas~R. Stinson.
+\newblock A Survey and Refinement of Repairable Threshold Schemes.
+\newblock Cryptology ePrint Archive, Paper 2017/1155, 2017.
+\newblock \url{https://eprint.iacr.org/2017/1155}.
+\end{thebibliography}
+
+\end{document}
